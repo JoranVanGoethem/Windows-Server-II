@@ -45,7 +45,7 @@ Vagrant.configure("2") do |config|
     end
 
     # ----POWERSHELL-----
-    config.vm.provision "shell", path: "../scripts/Server1.ps1"
+    server1.vm.provision "shell", path: "../scripts/Server1.ps1"
 
   end
 
@@ -63,7 +63,7 @@ Vagrant.configure("2") do |config|
     end
 
     # ----POWERSHELL-----
-    config.vm.provision "shell", path: "../scripts/Server2.ps1"
+    server2.vm.provision "shell", path: "../scripts/Server2.ps1"
 
   end
 
@@ -82,7 +82,7 @@ Vagrant.configure("2") do |config|
   end
 
   # ----POWERSHELL-----
-  config.vm.provision "shell", path: "../scripts/Client.ps1"
+  client.vm.provision "shell", path: "../scripts/Client.ps1"
 
   # Is Hyper-V volledig uitgeschakeld, maar krijg je nog steeds timeouts bij uitrollen van de client?
   # Verwijder dan het #-teken voor de onderstaande regel om de timeout te verhogen - indien nodig kan je de waarde nog aanpassen (default is 300 seconden)
