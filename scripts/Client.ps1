@@ -26,6 +26,22 @@ Get-NetAdapter "Ethernet 1" | Set-DNSClient -RegisterThisConnectionsAddress $Fal
 # RSAT tools
 #------------------------------------------------------------------------------ 
 
+Get-WindowsFeature -Name RSAT*
+
+# AD tools 
+Install-WindowsFeature -Name RSAT-AD-Tools -IncludeAllSubFeature
+
+# DNS server tools
+Install-WindowsFeature -Name DNS Server Tools -IncludeAllSubFeature
+
+# DHCP tools
+Install-WindowsFeature -Name DHCP Server Tools -IncludeAllSubFeature
+
+
 #------------------------------------------------------------------------------ 
 # SSMS
 #------------------------------------------------------------------------------ 
+
+https://aka.ms/ssms/21/release/vs_SSMS.exe
+
+./vs_SSMS.exe
