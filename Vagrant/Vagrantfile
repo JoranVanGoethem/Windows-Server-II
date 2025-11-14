@@ -45,7 +45,7 @@ Vagrant.configure("2") do |config|
     end
 
     # ----POWERSHELL-----
-    server1.vm.provision "shell", path: "../scripts/Server1.ps1", privileged: true
+    server1.vm.provision "shell", path: "../scripts/Server1.ps1"
 
   end
 
