@@ -1,14 +1,10 @@
 #------------------------------------------------------------------------------ 
-# run
-#------------------------------------------------------------------------------ 
-firewall
-IPconfiguratie
-
-#------------------------------------------------------------------------------ 
 # Firewall
 #------------------------------------------------------------------------------ 
 function firewall {
-Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+    Write-Host "======= Firewall services uitschakelen ======="
+
+    Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
 
 }
 
@@ -17,31 +13,97 @@ Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
 #------------------------------------------------------------------------------ 
 function IPconfiguratie {
 
-# dns caching uitschakelen op nat adapter
-Get-NetAdapter "Ethernet 1" | Set-DNSClient -RegisterThisConnectionsAddress $False
+    # Stel de host-only interface in om server1 als DNS te gebruiken
+    Set-DnsClientServerAddress -InterfaceAlias "Ethernet 2" -ServerAddresses 192.168.25.10
+
+    # Controleer het opnieuw
+    Get-DnsClientServerAddress -InterfaceAlias "Ethernet 2"
+
+
+    # dns caching uitschakelen op nat adapter
+    Get-NetAdapter "Ethernet" | Set-DNSClient -RegisterThisConnectionsAddress $False
 
 }
 
 #------------------------------------------------------------------------------ 
 # RSAT tools
 #------------------------------------------------------------------------------ 
+function RSAT {
+    Write-Host "======= RSAT tools installeren ======="
 
-Get-WindowsFeature -Name RSAT*
+    # Voor Windows 10/11 clients (Features-on-Demand)
+    Write-Host "Active directory tools installeren ..."
+    Add-WindowsCapability -Online -Name "Rsat.ActiveDirectory.DS-LDS.Tools~~~~0.0.1.0"
 
-# AD tools 
-Install-WindowsFeature -Name RSAT-AD-Tools -IncludeAllSubFeature
+    Write-Host "DNS tools installeren ..."
+    Add-WindowsCapability -Online -Name "Rsat.Dns.Tools~~~~0.0.1.0"
 
-# DNS server tools
-Install-WindowsFeature -Name DNS Server Tools -IncludeAllSubFeature
+    Write-Host "DHCP tools installeren ..."
+    Add-WindowsCapability -Online -Name "Rsat.Dhcp.Tools~~~~0.0.1.0"
 
-# DHCP tools
-Install-WindowsFeature -Name DHCP Server Tools -IncludeAllSubFeature
+    Write-Host "AD CS management tools installeren ..."
+    Add-WindowsCapability -Online -Name "Rsat.CertificateServices.Tools~~~~0.0.1.0"
 
+
+}
 
 #------------------------------------------------------------------------------ 
 # SSMS
 #------------------------------------------------------------------------------ 
+function Install-SSMSClient {
+    Write-Host "======= SSMS Client installeren ======="
+    # Pad waar SSMS geïnstalleerd zal worden
+    $ssmsInstallerPath = Join-Path -Path $PSScriptRoot -ChildPath "vs_SSMS.exe"
 
-https://aka.ms/ssms/21/release/vs_SSMS.exe
+    # Download SSMS installer als deze nog niet aanwezig is
+    if (-not (Test-Path $ssmsInstallerPath)) {
+        Write-Host "SSMS installer wordt gedownload..."
+        # Invoke-WebRequest -Uri "https://aka.ms/ssms/21/release/vs_SSMS.exe" -OutFile 
+        Start-BitsTransfer -Source "https://aka.ms/ssmsfullsetup" -Destination $ssmsInstallerPath
+    } else {
+        Write-Host "SSMS installer bestaat al, overslaan download."
+    }
 
-./vs_SSMS.exe
+    # SSMS installeren (stil)   
+    Write-Host "SSMS wordt geinstalleerd..."
+    Start-Process -FilePath $ssmsInstallerPath -ArgumentList "/install /quiet" -Wait
+
+    Write-Host "SSMS installatie voltooid."
+    Write-Host "Je kan nu verbinding maken met SQL Server via SSMS."
+}
+#------------------------------------------------------------------------------ 
+# Domeinlid maken
+#------------------------------------------------------------------------------
+function Join-Domain {
+    param (
+        [string]$DomainName = "WS2-25-Joran.hogent",
+        [string]$DomainAdmin  = "Admin1",
+        [string]$OU = "OU=employees,DC=WS2-25-Joran,DC=hogent"  # Optional: specifieke OU voor client
+    )
+    $DomainAdminPassword = "P@ssword123"
+    # Controleer of machine al lid is van het domein
+    $currentDomain = (Get-WmiObject Win32_ComputerSystem).Domain
+    if ($currentDomain -eq $DomainName) {
+        Write-Host "Machine is al lid van domein: $DomainName, skippen..."
+        return
+    }
+
+    Write-Host "Machine wordt lid van domein: $DomainName..."
+
+    $securePassword = ConvertTo-SecureString $DomainAdminPassword -AsPlainText -Force
+    $cred = New-Object System.Management.Automation.PSCredential ("$DomainName\$DomainAdmin", $securePassword)
+
+    # Lid worden van domein
+    Add-Computer -DomainName $DomainName -Credential $Cred -OUPath $OU -Restart
+    Write-Host "======= Client is Volledig Geconfigureerd ======="
+
+    Write-Host "Client is succesvol lid van het domein. De machine wordt herstart..."
+}
+#------------------------------------------------------------------------------ 
+# run
+#------------------------------------------------------------------------------ 
+firewall
+IPconfiguratie
+RSAT
+Install-SSMSClient
+Join-Domain
