@@ -193,3 +193,19 @@ De uitrol van de omgeving verloopt grotendeels succesvol. Grote componenten werk
 <!-- - Aan welke zaken heb je (te) veel tijd verloren? -->
 ik heb te veel tijd verloren aan het laten uitvoeren van de scripts met 1 vagrant run, door meerdere provisionings te doen in & run.
  - hierbij ben ik op veel fouten terecht gekomen met rebooten.
+
+# OPDRACHT 2
+
+## SERVER
+stap 0: vbox guest additions instellen
+stap 1: adminpass instellen: P@ssword123
+stap 2: computername aanpassen naar: intranet
+
+## netwerk
+stap 1: nieuwe adapter toevoegen en als host-only adapter van het netwerk instellen.
+stap 2: server een vast ip geven in het domein: 192.168.25.30
+stap 3: dns server koppelen aan server: 192.168.25.10
+stap 4: server aan het domein toevoegen 
+
+pass = P@ssword123
+![alt text](image.png)

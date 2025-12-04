@@ -73,13 +73,11 @@ function DNS_Secondary {
 # MS SQL
 #------------------------------------------------------------------------------ 
 function MSSQL {
-
+    New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Cryptography\Protect\Providers\df9d8cd0-1501-11d1-8c7a-00c04fc297eb" -Name ProtectionPolicy -Value 1 -PropertyType DWord -Force
     # Paden en instellingen
     $isoSource = "C:\vagrant\files\enu_sql_server_2022_standard_edition_x64_dvd_43079f69.iso"
     $isoPath   = "C:\tmp\files\enu_sql_server_2022_standard_edition_x64_dvd_43079f69.iso"
 
-    $saPassword   = "P@ssword123"
-    $instanceName = "MSSQLSERVER"
     Write-Host "======= Installatie SQL Server 2022 ======="
 
     # Zorg dat de doelmap bestaat
@@ -109,26 +107,27 @@ function MSSQL {
     }
     $sourcePath = "$($driveLetter):\"
 
-        Write-Host "SQL Server wordt nu geinstalleerd, dit kan enkele minuten duren..."
+
+    $SQLSysAdminAccount = "WS225JORAN\Admin1"
+
+    # Start stille installatie
     Start-Process -FilePath $sourcePath\setup.exe -ArgumentList @(
-    "/Q",
-    "/ACTION=Install",
-    "/FEATURES=SQLENGINE,REPLICATION,FULLTEXT,TOOLS",
-    "/INSTANCENAME=$instanceName",
-    "/SQLSYSADMINACCOUNTS=$SQLSysAdminAccount",
-    "/IACCEPTSQLSERVERLICENSETERMS",
-    "/TCPENABLED=1",
-    "/UPDATEENABLED=FALSE",
-    "/SAPWD=$saPassword",
-    "/SECURITYMODE=SQL"
+        "/Q",
+        "/ACTION=Install",
+        "/FEATURES=SQLENGINE,REPLICATION,FULLTEXT,TOOLS",
+        "/INSTANCENAME=MSSQLSERVER",
+        # FIX: SQL Install werkt niet zonder deze parameters
+        "/SQLSVCACCOUNT=""NT AUTHORITY\SYSTEM""",
+        "/AGTSVCACCOUNT=""NT AUTHORITY\SYSTEM""",
+        "/SQLSYSADMINACCOUNTS=$SQLSysAdminAccount",
+        "/IACCEPTSQLSERVERLICENSETERMS",
+        "/TCPENABLED=1",
+        "/UPDATEENABLED=FALSE",
+        "/SAPWD=25Admin26!",
+        "/SECURITYMODE=SQL"
     ) -Wait
 
-    # ISO unmounten
-    Write-Host "Unmounten van ISO..."
-    Dismount-DiskImage -ImagePath $isoPath
-    Write-Host "ISO unmounted."
-
-    Write-Host "SQL Server installatie voltooid. Controleer dat domeingebruikers toegevoegd kunnen worden in SSMS."
+    Write-Host "SQL Server 2022 installatie voltooid."
 }
 #------------------------------------------------------------------------------ 
 # Domeinlid maken
@@ -181,6 +180,7 @@ function RunAsDomainAdminInline {
         & $fnName
     } -ArgumentList $FunctionName, $functionDef
 }
+
 
 
 #------------------------------------------------------------------------------ 

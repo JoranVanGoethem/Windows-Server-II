@@ -255,95 +255,151 @@ function CA {
 
     Write-Host "======= Certificate Authority installeren ======="
 
-    # Installatie Certificate Services + Web Enrollment
+    # Install Certificate Services + Web Enrollment
     if (-not (Get-WindowsFeature ADCS-Cert-Authority).Installed) {
+        Write-Host "Installeren ADCS-Cert-Authority..."
         Install-WindowsFeature ADCS-Cert-Authority -IncludeManagementTools
     } else {
-        Write-Host "ADCS-Cert-Authority al geinstalleerd, skippen..."
+        Write-Host "ADCS-Cert-Authority al geïnstalleerd, skippen..."
     }
 
     if (-not (Get-WindowsFeature ADCS-Web-Enrollment).Installed) {
+        Write-Host "Installeren ADCS-Web-Enrollment..."
         Install-WindowsFeature ADCS-Web-Enrollment -IncludeManagementTools
     } else {
-        Write-Host "ADCS-Web-Enrollment al geinstalleerd, skippen..."
+        Write-Host "ADCS-Web-Enrollment al geïnstalleerd, skippen..."
     }
 
-
-    # Configureer Enterprise Root CA als deze nog niet bestaat
-    $caInstalled = Get-Service certsvc -ErrorAction SilentlyContinue
-    if (-not $caInstalled) {
-        Install-AdcsCertificationAuthority `
-            -CAType EnterpriseRootCA `
-            -CACommonName $CACommonName `
-            -KeyLength 2048 `
-            -HashAlgorithmName SHA1 `
-            -ValidityPeriod Years `
-            -ValidityPeriodUnits 5 `
-            -CryptoProviderName "RSA#Microsoft Software Key Storage Provider" `
-            -Force
-        Write-Host "Root CA geinstalleerd."
+    # Configure Enterprise Root CA if not already configured
+    $caStatus = Get-CACertificationAuthority -ErrorAction SilentlyContinue
+    if (-not $caStatus) {
+        Write-Host "Configureren Enterprise Root CA..."
+        try {
+            Install-AdcsCertificationAuthority `
+                -CAType EnterpriseRootCA `
+                -CACommonName $CACommonName `
+                -KeyLength 2048 `
+                -HashAlgorithmName SHA256 `
+                -ValidityPeriod Years `
+                -ValidityPeriodUnits 5 `
+                -CryptoProviderName "RSA#Microsoft Software Key Storage Provider" `
+                -Force
+            Write-Host "Root CA geïnstalleerd."
+        }
+        catch {
+            Write-Host "Fout bij installeren CA: $($_.Exception.Message)" -ForegroundColor Red
+            return
+        }
     } else {
-        Write-Host "De Certification Authority is al geinstalleerd, skippen..."
+        Write-Host "De Certification Authority is al geconfigureerd, skippen..."
     }
 
-    # Configureer Web Enrollment
-    Install-AdcsWebEnrollment -Force
+    # Configure Web Enrollment if not already configured
+    $webEnrollmentStatus = Get-WebApplication -Site "Default Web Site" -Name "CertSrv" -ErrorAction SilentlyContinue
+    if (-not $webEnrollmentStatus) {
+        Write-Host "Configureren Web Enrollment..."
+        try {
+            Install-AdcsWebEnrollment -Force
+            Write-Host "Web Enrollment geconfigureerd."
+        }
+        catch {
+            Write-Host "Fout bij configureren Web Enrollment: $($_.Exception.Message)" -ForegroundColor Red
+        }
+    } else {
+        Write-Host "Web Enrollment is al geconfigureerd, skippen..."
+    }
 
-    Import-Module WebAdministration
+    # Configure IIS settings for CertSrv - ALLOW ALL DOMAIN USERS
+    Import-Module WebAdministration -ErrorAction SilentlyContinue
+    
 
-    Set-WebConfigurationProperty -Filter "/system.webServer/security/authentication/windowsAuthentication" -Name enabled -Value true -Location "Default Web Site/certsrv"
-    Set-WebConfigurationProperty -Filter "/system.webServer/security/authentication/anonymousAuthentication" -Name enabled -Value true -Location "Default Web Site/certsrv"
+    Write-Host "Configureren IIS instellingen voor CertSrv (toegang voor alle domeingebruikers)..."
+
+    # Enable Windows Authentication
+    Set-WebConfigurationProperty -Filter "/system.webServer/security/authentication/windowsAuthentication" -Name enabled -Value true -Location "Default Web Site/CertSrv" -ErrorAction SilentlyContinue
+        
+    # Disable Anonymous Authentication
+    Set-WebConfigurationProperty -Filter "/system.webServer/security/authentication/anonymousAuthentication" -Name enabled -Value false -Location "Default Web Site/CertSrv" -ErrorAction SilentlyContinue        
+    
     Set-WebConfigurationProperty -Filter "/system.webServer/security/access" -Name sslFlags -Value "None" -Location "Default Web Site/certsrv"
 
-    # Wacht even zodat het certificaat beschikbaar is
-    Start-Sleep -Seconds 10
+    Add-WebConfigurationProperty -PSPath 'IIS:\' -Filter 'system.webServer/authorization' -Location $loc -Name '.' -Value @{accessType='Allow'; users='*'} -ErrorAction SilentlyContinue | Out-Null
 
-    # Certificaat ophalen
-    $caCert = Get-ChildItem Cert:\LocalMachine\CA | Where-Object { $_.Subject -like "*Root Agency*" } | Select-Object -First 1
-    $exportPath = "C:\CAroot.cer"
 
-    if ($caCert) {
-        Export-Certificate -Cert $caCert -FilePath $exportPath -Force
-        Write-Host "======= Root CA certificaat geexporteerd naar $exportPath ======="
-    } else {
-        Write-Host "Geen certificaat gevonden om te exporteren!"
-    }
+    # Wait for certificate service to be ready
+    Write-Host "Wachten op certificaat service..."
+    Start-Sleep -Seconds 15
 
-    # GPO maken voor automatische trust
-    $domain = (Get-ADDomain).DNSRoot
-    $domainDN = (Get-ADDomain).DistinguishedName
+    # # Get and export CA certificate
+    # $exportPath = "C:\CAroot.cer"
+    # try {
+    #     $caCert = Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.Subject -like "*$CACommonName*" } | Select-Object -First 1
+        
+    #     if (-not $caCert) {
+    #         # Alternative search in CA store
+    #         $caCert = Get-ChildItem Cert:\LocalMachine\CA | Where-Object { $_.Subject -like "*$CACommonName*" } | Select-Object -First 1
+    #     }
 
-    $gpo = Get-GPO -Name "Auto-Trust-Enterprise-CA" -ErrorAction SilentlyContinue
-    if (-not $gpo) {
-        $gpo = New-GPO -Name "Auto-Trust-Enterprise-CA"
-        Write-Host "GPO $($gpo.DisplayName) aangemaakt."
-    } else {
-        Write-Host "GPO $($gpo.DisplayName) bestaat al, skippen..."
-    }
+    #     if ($caCert) {
+    #         Export-Certificate -Cert $caCert -FilePath $exportPath -Type CERT -Force
+    #         Write-Host "======= Root CA certificaat geëxporteerd naar $exportPath ======="
+    #     } else {
+    #         Write-Host "Waarschuwing: Kon CA certificaat niet vinden om te exporteren!" -ForegroundColor Yellow
+    #     }
+    # }
+    # catch {
+    #     Write-Host "Fout bij exporteren certificaat: $($_.Exception.Message)" -ForegroundColor Red
+    # }
 
-    # Controleer of de link al bestaat
-    $existingLink = Get-GPInheritance -Target $domainDN -Domain $domain -Server $env:COMPUTERNAME | 
-        Select-Object -ExpandProperty GpoLinks |
-        Where-Object { $_.DisplayName -eq $gpo.DisplayName }
+    # # Create GPO for automatic trust
+    # try {
+    #     # $domain = (Get-ADDomain).DNSRoot
+    #     $domainDN = (Get-ADDomain).DistinguishedName
 
-    if (-not $existingLink) {
-        New-GPLink -Name $gpo.DisplayName -Target $domainDN -Domain $domain -Server $env:COMPUTERNAME
-        Write-Host "GPO-link $($gpo.DisplayName) aangemaakt."
-    } else {
-        Write-Host "GPO-link $($gpo.DisplayName) bestaat al, skippen..."
-    }
+    #     $gpo = Get-GPO -Name "Auto-Trust-Enterprise-CA" -ErrorAction SilentlyContinue
+    #     if (-not $gpo) {
+    #         $gpo = New-GPO -Name "Auto-Trust-Enterprise-CA"
+    #         Write-Host "GPO $($gpo.DisplayName) aangemaakt."
+            
+    #         # Set GPO description
+    #         Set-GPRegistryValue -Name $gpo.DisplayName -Key "HKLM\SOFTWARE\Policies\Microsoft\SystemCertificates\Root\Certificates" -ValueName "AutoTrustCA" -Type String -Value "Enabled"
+    #     } else {
+    #         Write-Host "GPO $($gpo.DisplayName) bestaat al, skippen..."
+    #     }
 
-    # Importeren in Trusted Root Certification Authorities van het domein
-    if ($caCert) {
-        Import-Certificate -FilePath $exportPath -CertStoreLocation "Cert:\LocalMachine\Root"
-    }
+    #     # Check if the link already exists
+    #     $existingLink = Get-GPInheritance -Target $domainDN | 
+    #         Select-Object -ExpandProperty GpoLinks |
+    #         Where-Object { $_.DisplayName -eq $gpo.DisplayName }
 
-    # Forceer GPO update
-    gpupdate /force    
+    #     if (-not $existingLink) {
+    #         New-GPLink -Name $gpo.DisplayName -Target $domainDN -LinkEnabled Yes
+    #         Write-Host "GPO-link $($gpo.DisplayName) aangemaakt."
+    #     } else {
+    #         Write-Host "GPO-link $($gpo.DisplayName) bestaat al, skippen..."
+    #     }
 
-    Write-Host "======= CA installatie en GPO configuratie voltooid ======="
-    Write-Host "======= Certificate Authority Web Enrollment draait nu op: http://$domain/CertSrv ======="
+    #     # Import certificate to Trusted Root Certification Authorities
+    #     if (Test-Path $exportPath) {
+    #         Import-Certificate -FilePath $exportPath -CertStoreLocation "Cert:\LocalMachine\Root" -ErrorAction SilentlyContinue
+    #         Write-Host "Certificaat geïmporteerd in Trusted Root Store."
+    #     }
+
+    # }
+    # catch {
+    #     Write-Host "Waarschuwing: GPO configuratie mislukt: $($_.Exception.Message)" -ForegroundColor Yellow
+    # }
+
+    # # Force GPO update
+    # Write-Host "Forceren GPO update..."
+    # gpupdate /force | Out-Null
+
+    # Write-Host "======= CA installatie en GPO configuratie voltooid =======" -ForegroundColor Green
+    Write-Host "======= Certificate Authority Web Enrollment draait nu op: http://$env:COMPUTERNAME/CertSrv =======" -ForegroundColor Green
+    # Write-Host "======= En ook op: http://$((Get-ADDomain).DNSRoot)/CertSrv =======" -ForegroundColor Green
+    # Write-Host "======= TOEGANG: Alle domeingebruikers hebben nu toegang! =======" -ForegroundColor Cyan
 }
+
 #------------------------------------------------------------------------------ 
 # Helper: Run as Domain Admin
 #------------------------------------------------------------------------------ 
@@ -368,6 +424,7 @@ function RunAsDomainAdminInline {
         & $fnName
     } -ArgumentList $FunctionName, $functionDef
 }
+
 #------------------------------------------------------------------------------ 
 # run
 #------------------------------------------------------------------------------ 
